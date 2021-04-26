@@ -1,0 +1,207 @@
+// Copyright (C) 2021, ATA Engineering, Inc.
+//  
+// This program is free software; you can redistribute it and/or
+// modify it under the terms of the GNU Lesser General Public
+// License as published by the Free Software Foundation; either
+// version 3 of the License, or (at your option) any later version.
+//  
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+// Lesser General Public License for more details.
+//  
+// You should have received a copy of the GNU Lesser General Public License
+// along with this program; if not, write to the Free Software Foundation,
+// Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
+
+#include "bctools.h"
+#include "read_grid.h"
+#include "eos.h"
+#include "reaction.h"
+#include "qvi.h"
+#include "fluidState.h"
+$include "chem.lh"
+
+namespace chem {
+  // boundary condition check for stagnation enthalpy
+  class isentropic_h0_check : public BC_Check {
+    std::string error_message;
+
+   public:
+    std::string boundaryConditions() { return "isentropicInflow"; }
+    std::string variablesChecked() { return "T0,h0,p0,mixture,equilibrium"; }
+    bool checkOptions(const options_list &bc_options) {
+      error_message = "";
+      // check that either T0 or h0 is specified
+      int numThermal = 0;
+      if (bc_options.optionExists("T0")) {
+        numThermal++;
+      }
+      if (bc_options.optionExists("h0")) {
+        numThermal++;
+      }
+      if (numThermal != 1) {
+        error_message = "must specify one of either 'T0' or 'h0'";
+        return false;
+      }
+
+      // check that p0 is specified
+      if (!bc_options.optionExists("p0")) {
+        error_message = "'p0' is required";
+        return false;
+      }
+
+      // check units
+      bool check = true;
+      if (!check_scalar_units(bc_options, "p0", "Pa")) {
+        error_message = "Units are incompatible for 'p0' ";
+        check = false;
+      }
+      if (bc_options.optionExists("T0")) {
+        if (!check_scalar_units(bc_options, "T0", "K")) {
+          error_message += "Units are incompatible for 'T0'";
+          check = false;
+        }
+      }
+      if (bc_options.optionExists("h0")) {
+        if (!check_scalar_units(bc_options, "h0", "J/kg")) {
+          error_message += "Units are incompatible for 'h0'";
+          check = false;
+        }
+      }
+      return check;
+    }
+    std::ostream &ErrorMessage(std::ostream &s) {
+      s << error_message << endl;
+      return s;
+    }
+  };
+
+  register_BC<isentropic_h0_check> register_isentropic_h0_check;
+
+  // -------------------------------------------------------------------
+  // function to print out state
+  // The following function prints out the fluid state
+  void print_state(const EOS::State &s, const conservativeVectorInfo &qvi,
+                   const real *qp, const std::string &name) {
+    $[Once] {
+      cout << name << " State is [";
+      const real c = s.soundSpeed();
+      const real rho = s.density();
+      const real T = s.temperature();
+      const real P = s.pressure();
+      const int mi = qvi.momentumIndex();
+      const real u =
+          sqrt(square(qp[mi]) + square(qp[mi + 1]) + square(qp[mi + 2]));
+      const real M = u / c;
+      const real Gamma = s.Gamma();
+      const real h = s.enthalpy();
+
+      const int ns = qvi.numSpecies();
+      tmp_array<real> mixture(ns);
+      primitive_vector::getMixture(mixture, qp, qvi);
+
+      cout << "rho=" << rho << ",T=" << T << ",P=" << P << ",M=" << M
+           << ",a=" << c << ",Gamma=" << Gamma << ",h=" << h << "]" << endl;
+      cout << "     mass fractions = [" << qvi.speciesName(0) << "="
+           << mixture[0];
+      for (int i = 1; i < ns; ++i)
+        cout << "," << qvi.speciesName(i) << "=" << mixture[i];
+      cout << "]" << endl;
+    }
+  }
+
+  // -------------------------------------------------------------------
+  $type equilibrium_BCoption Constraint;
+  $type h0_BCoption Constraint;
+  
+  $type h0_BC store<real>;
+  $rule pointwise(h0_BC <- BC_options), constraint(h0_BCoption) {
+    $BC_options.getOptionUnits("h0", "J/kg", $h0_BC);
+  }
+
+  $type h0Ref store<real>;
+  $rule pointwise(h0Ref <- ref->h0_BC) { $h0Ref = $ref->$h0_BC; }
+
+  $type equilibrium_BC store<bool>;
+  $rule pointwise(priority::equilibrium_BC <- BC_options), 
+      constraint(equilibrium_BCoption) {
+    $equilibrium_BC = true;
+  }
+
+  $rule pointwise(equilibrium_BC <- BC_options) { $equilibrium_BC = false; }
+
+  $type qp0 storeVec<real>;
+  $rule pointwise(qp0 <- p0_BC, h0_BC, mixture_BC, qvi, eos,
+                  reactor, equilibrium_BC, primitive_type, Pambient), 
+                  constraint(h0_BCoption), prelude {
+    $qp0.setVecSize($qvi->vectorSize());
+  } compute {
+    vect3d velocity(0, 0, 0);
+    std::vector<real> mState($eos.numSpecies(), 0);
+    EOS::State s =
+        $eos.State_from_p_h($mixture_BC, $p0_BC, $h0_BC, &(mState[0]));
+    real T0_BC = s.temperature();  // initial guess
+    real dT = 0.0;
+    const int max_iter = 1000;
+    int i = 0;
+    real dh = 1.0;
+    while (fabs(dh) > 1e-6 && i < max_iter) {
+      T0_BC += dT;
+      fluidState fs($qvi, $mixture_BC, velocity, $p0_BC, T0_BC,
+                    $equilibrium_BC);
+      fs.setPrimitive($qp0, $Pambient, $qvi, $eos, $reactor, $primitive_type);
+      s = primitive_vector::getState($qp0, $Pambient, $qvi, $eos);
+      dh = $h0_BC - s.enthalpy();
+      dT = 0.1 * dh / s.cpt();
+      i++;
+    }
+    if (i == max_iter) {
+      cerr << "ERROR: could not converge on equilibrium mixture for h0" << endl;
+      Loci::Abort();
+    }
+  }
+
+  $rule pointwise(qp0 <- p0_BC, T0_BC, mixture_BC, qvi, eos, reactor, 
+                  equilibrium_BC, Pambient, primitive_type), 
+                  constraint(T0_BCoption), prelude {
+    $qp0.setVecSize($qvi->vectorSize());
+  } compute {
+    vect3d velocity(0, 0, 0);
+    fluidState fs($qvi, $mixture_BC, velocity, $p0_BC, $T0_BC, $equilibrium_BC);
+    fs.setPrimitive($qp0, $Pambient, $qvi, $eos, $reactor, $primitive_type);
+  }
+
+  $type mixture0 storeVec<real>;
+  $rule pointwise(mixture0 <- qp0, qvi), prelude {
+    $mixture0.setVecSize($qvi->numSpecies());
+  } compute { 
+    primitive_vector::getMixture($mixture0, $qp0, $qvi); 
+  }
+
+  $type eos_state0 store<EOS::State>;
+  $rule pointwise(eos_state0 <- eos, qvi, qp0, Pambient) {
+    $eos_state0 = primitive_vector::getState($qp0, $Pambient, $qvi, $eos);
+    print_state($eos_state0, $qvi, $qp0, "Isentropic BC:");
+  }
+
+  $rule pointwise(priority::mixtureRef <- ref->(mixture0, eos_state0)),
+      constraint(isentropicInflow_BC, ref->equilibrium_BCoption), prelude {
+    $mixtureRef.setVecSize($mixture0.vecSize());
+  } compute { 
+    $mixtureRef = $ref->$mixture0;
+  }
+
+  $rule pointwise(T0_BC <- eos_state0), constraint(h0_BCoption) {
+    $T0_BC = $eos_state0.temperature();
+  }
+
+
+
+
+
+
+
+
+
+}  // end chem namespace
