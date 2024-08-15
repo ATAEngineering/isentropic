@@ -1,0 +1,115 @@
+# This file is a template, and might need editing before it works on your project.
+# This is a sample GitLab CI/CD configuration file that should run without any modifications.
+# It demonstrates a basic 3 stage CI/CD pipeline. Instead of real tests or scripts,
+# it uses echo commands to simulate the pipeline execution.
+#
+# A pipeline is composed of independent jobs that run scripts, grouped into stages.
+# Stages run in sequential order, but jobs within stages run in parallel.
+#
+# For more information, see: https://docs.gitlab.com/ee/ci/yaml/index.html#stages
+#
+# You can copy and paste this template into a new `.gitlab-ci.yml` file.
+# You should not add this template to an existing `.gitlab-ci.yml` file by using the `include:` keyword.
+#
+# To contribute improvements to CI/CD templates, please follow the Development guide at:
+# https://docs.gitlab.com/ee/development/cicd/templates.html
+# This specific template is located at:
+# https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
+
+variables:
+  GCC_VERSION: 13
+  MODULE_NAME: 'isentropic'
+  BUILD_IMAGE: "$CI_REGISTRY/containers/chem:4.0-p10-ata-gcc${GCC_VERSION}"
+  VERSION: ${CI_COMMIT_TAG}
+  PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${MODULE_NAME}/${VERSION}"
+  MAX_PROCS: "4"
+
+default:
+  image: "$BUILD_IMAGE"
+  tags:
+  - linux
+
+stages:          # List of stages for jobs, and their order of execution
+  - build
+  - quality_check
+  - upload
+  - release
+
+build_module:
+  stage: build
+  script:
+    - whoami
+    - pwd
+    - ls -lh
+    - env
+    - scl enable gcc-toolset-${GCC_VERSION} 'bash ci/build_module'
+  # Use artifacts to return logs and other files to GitLab (if necessary)
+  artifacts:
+    paths:
+      - isentropic_m.so
+
+# This will upload the module install to the package registry, but only when tagged
+# See: https://docs.gitlab.com/ee/user/project/releases/release_fields.html#release-assets
+upload_package:
+  stage: upload
+  rules:
+    # only run job if tag created with just a version number
+    - if: $CI_COMMIT_TAG =~ /\d+/
+  script:
+    - |
+      ls -lh
+      echo $PACKAGE_REGISTRY_URL
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file ${MODULE_NAME}_m.so "${PACKAGE_REGISTRY_URL}/${MODULE_NAME}_m.so"
+
+# This will upload a tarball with the distribution to the package registry, but only when tagged
+# See: https://docs.gitlab.com/ee/user/project/releases/release_fields.html#release-assets
+upload_distribution:
+  stage: upload
+  rules:
+    # only run job if tag created with just a version number
+    - if: $CI_COMMIT_TAG =~ /\d+/
+  script:
+    - |
+      ls -lh
+      mkdir ${MODULE_NAME}-${VERSION}
+      cp LICENSE ${MODULE_NAME}-${VERSION}/
+      cp README.md ${MODULE_NAME}-${VERSION}/
+      cp *.loci ${MODULE_NAME}-${VERSION}/
+      cp Makefile ${MODULE_NAME}-${VERSION}/
+      tar zcvf ${MODULE_NAME}-${VERSION}.tar.gz ${MODULE_NAME}-${VERSION}
+      echo $PACKAGE_REGISTRY_URL
+      curl --header "JOB-TOKEN: ${CI_JOB_TOKEN}" --upload-file ${MODULE_NAME}-${VERSION}.tar.gz "${PACKAGE_REGISTRY_URL}/${MODULE_NAME}-${VERSION}.tar.gz"
+
+# This will create a release when main is tagged with a version number
+release_job:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  rules:
+    - if: $CI_COMMIT_TAG =~ /\d+/  # only run this job if a tag is created with just a version number
+  script:
+    - echo "running release_job for ${VERSION}"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: ${CI_COMMIT_REF_NAME}-${CI_JOB_ID}
+    ref: $CI_COMMIT_SHA
+    assets:
+      links:
+        - name: ${MODULE_NAME}_m.so
+          url: "${PACKAGE_REGISTRY_URL}/${MODULE_NAME}_m.so"
+          filepath: "/${MODULE_NAME}_m.so"
+          link_type: package
+        - name: ${MODULE_NAME}-${VERSION}.tar.gz
+          url: "${PACKAGE_REGISTRY_URL}/${MODULE_NAME}-${VERSION}.tar.gz"
+          filepath: "/${MODULE_NAME}-${VERSION}.tar.gz"
+          link_type: package
+
+# Code and security scanning jobs
+sast:
+  stage: quality_check
+  artifacts:
+    paths:
+      - gl-sast-report.*
+
+include:
+  - template: Jobs/SAST.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/SAST.gitlab-ci.yml
+

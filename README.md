@@ -1,9 +1,9 @@
 # Isentropic Module
 This module was developed by [ATA Engineering](http://www.ata-e.com) as an 
 add-on to the Loci/CHEM computational fluid dynamics (CFD) solver. The 
-module can be used to extend the **isentropicInflow** boundary condition to 
+module can be used to extend the `isentropicInflow` boundary condition to 
 allow the user to specify a stagnation enthalpy instead of a stagnation
-temperature. It also supports the **equilibrium** tag which will calculate
+temperature. It also supports the `equilibrium*`tag which will calculate
 the equilibrium species mass fractions at the prescribed stagnation 
 conditions.
 
@@ -19,9 +19,9 @@ the [SimSys Software Forum](http://www.simcenter.msstate.edu) hosted by
 MSU. This module also requires a compiler with C++11 support.
 
 # Installation Instructions
-First Loci and CHEM should be installed. The **LOCI_BASE** environment
+First Loci and CHEM should be installed. The `LOCI_BASE` environment
 variable should be set to point to the Loci installation directory. The 
-**CHEM_BASE** environment variable should be set to point to the CHEM 
+`CHEM_BASE` environment variable should be set to point to the CHEM 
 installation directory. The installation process follows the standard 
 make, make install procedure.
 
@@ -31,9 +31,9 @@ make install
 ```
 
 # Usage
-First the module must be loaded at the top of the **vars** file. 
-Any **isentropicInflow** boundaries conditions may be tagged with the 
-**h0** and/or **equilibrium** tags. 
+First the module must be loaded at the top of the `vars` file. 
+Any `isentropicInflow` boundaries conditions may be tagged with the 
+`h0` and/or `equilibrium` tags. 
 
 ```
 loadModule: isentropic
