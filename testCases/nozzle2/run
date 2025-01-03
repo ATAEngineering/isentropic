@@ -1,0 +1,15 @@
+#!/bin/bash
+
+export OMPI_MCA_btl_vader_single_copy_mechanism=none
+echo "PATH" $PATH
+echo "LD_LIBRARY_PATH" $LD_LIBRARY_PATH
+
+CHEM_CASE=nozzle
+CHEM_RES=
+CHEM_CPUS=${MAX_PROCS}
+
+ls -lh
+echo "HOSTNAME" ${HOSTNAME}
+
+echo "Launching CHEM..."
+mpirun -n ${CHEM_CPUS} chem --verbose ${CHEM_CASE} ${CHEM_RES}>chem.out

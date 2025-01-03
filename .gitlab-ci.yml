@@ -31,6 +31,7 @@ default:
 stages:          # List of stages for jobs, and their order of execution
   - build
   - quality_check
+  - test
   - upload
   - release
 
@@ -46,10 +47,13 @@ build_module_openmpi:
     - mkdir ${MODULE_NAME}
     - cp ${MODULE_NAME}_m.so ${MODULE_NAME}
     - tar zcvf ${MODULE_NAME}-${VERSION}-build-openmpi.tar.gz ${MODULE_NAME}
+    - mkdir build
+    - cp ${MODULE_NAME}_m.so build
   # Use artifacts to return logs and other files to GitLab (if necessary)
   artifacts:
     paths:
       - ${MODULE_NAME}-${VERSION}-build-openmpi.tar.gz
+      - build/${MODULE_NAME}_m.so
 
 build_module_mpich:
   stage: build
@@ -67,6 +71,15 @@ build_module_mpich:
   artifacts:
     paths:
       - ${MODULE_NAME}-${VERSION}-build-mpich.tar.gz
+
+test-regression:
+  stage: test
+  image: "${BUILD_IMAGE}-openmpi"
+  script:
+    - whoami
+    - ls -lh
+    - env
+    - scl enable gcc-toolset-${GCCVERSION} 'bash ci/run_regression_tests ${MAX_PROCS}'
 
 # This will upload the module install to the package registry, but only when tagged
 # See: https://docs.gitlab.com/ee/user/project/releases/release_fields.html#release-assets
