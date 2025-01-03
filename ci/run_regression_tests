@@ -1,0 +1,24 @@
+#!/bin/bash
+
+pwd
+export cwd=`pwd`
+export hdir=$cwd
+ls -lh
+echo "LOCI_BASE" $LOCI_BASE
+echo "CHEM_BASE" $CHEM_BASE
+echo "CHEMISTRY_DATABASE" $CHEMISTRY_DATABASE
+# Set paths
+export LOCI_MODULE_PATH=$cwd/build
+export LD_LIBRARY_PATH=$LOCI_MODULE_PATH:$LD_LIBRARY_PATH
+export OMPI_MCA_btl_vader_single_copy_mechanism=none
+which extract
+which chem
+cd testCases
+python3 -u regressionTests.py -n ${1}
+result=$?
+echo "Error code" $result
+if (( $result != 0 ))
+then
+  echo "Regression tests had an error"
+  exit $result
+fi
