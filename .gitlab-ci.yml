@@ -19,7 +19,7 @@
 variables:
   GCC_VERSION: 13
   MODULE_NAME: 'isentropic'
-  BUILD_IMAGE: "$CI_REGISTRY/containers/chem:4.0-p10-ata-3-gcc${GCC_VERSION}"
+  BUILD_IMAGE: "$CI_REGISTRY/containers/chem:4.0-p11-gcc${GCC_VERSION}"
   VERSION: ${CI_COMMIT_TAG}
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${MODULE_NAME}/${VERSION}"
   MAX_PROCS: "4"
