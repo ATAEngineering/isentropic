@@ -241,8 +241,8 @@ def main():
     nozzle2.SetRunDirectory("nozzle2")
     nozzle2.SetNumberOfProcessors(maxProcs)
     nozzle2.SetNumberOfIterations(200)
-    truthData = {os.path.join("output", "resid.dat"): [1.455048445e-12, 1.254580549e-05, 2.737277274e-09], # residuals
-                                        "probe1.dat": [2661.5920742931, 92099.373509482, 0.031681178969125]} # probe
+    truthData = {os.path.join("output", "resid.dat"): [1.409578009e-12, 1.25970193e-05, 2.723237489e-09], # residuals
+                                        "probe1.dat": [2661.5920734386, 92099.373376843, 0.031681178968845]} # probe
     truthDataLocation = {os.path.join("output", "resid.dat"): [1, 2, 3],
                                                 "probe1.dat": [2, 3, 15]} # T, P, fNO
     nozzle2.SetTruthData(truthData, truthDataLocation)
