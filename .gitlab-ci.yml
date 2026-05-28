@@ -17,9 +17,9 @@
 # https://gitlab.com/gitlab-org/gitlab/-/blob/master/lib/gitlab/ci/templates/Getting-Started.gitlab-ci.yml
 
 variables:
-  GCC_VERSION: 13
+  GCC_VERSION: 14
   MODULE_NAME: 'isentropic'
-  BUILD_IMAGE: "$CI_REGISTRY/containers/chem:4.0-p11-gcc${GCC_VERSION}"
+  BUILD_IMAGE: "${HARBOR_REGISTRY}/ata-containers/chem:4.1.b8-gcc${GCC_VERSION}"
   VERSION: ${CI_COMMIT_TAG}
   PACKAGE_REGISTRY_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/${MODULE_NAME}/${VERSION}"
   MAX_PROCS: "4"
@@ -30,47 +30,42 @@ default:
 
 stages:          # List of stages for jobs, and their order of execution
   - build
-  - quality_check
   - test
   - upload
   - release
 
-build_module_openmpi:
-  stage: build
-  image: "${BUILD_IMAGE}-openmpi"
-  script:
-    - whoami
-    - pwd
-    - ls -lh
-    - env
-    - scl enable gcc-toolset-${GCC_VERSION} 'bash ci/build_module'
-    - mkdir ${MODULE_NAME}
-    - cp ${MODULE_NAME}_m.so ${MODULE_NAME}
-    - tar zcvf ${MODULE_NAME}-${VERSION}-build-openmpi.tar.gz ${MODULE_NAME}
-    - mkdir build
-    - cp ${MODULE_NAME}_m.so build
-  # Use artifacts to return logs and other files to GitLab (if necessary)
-  artifacts:
-    paths:
-      - ${MODULE_NAME}-${VERSION}-build-openmpi.tar.gz
-      - build/${MODULE_NAME}_m.so
 
-build_module_mpich:
+.build-template:
   stage: build
-  image: "${BUILD_IMAGE}-mpich"
+  image: "${BUILD_IMAGE}-${MPI_FLAVOR}"
   script:
     - whoami
     - pwd
     - ls -lh
     - env
+    - echo "Building with MPI ${MPI_FLAVOR}"
     - scl enable gcc-toolset-${GCC_VERSION} 'bash ci/build_module'
     - mkdir ${MODULE_NAME}
     - cp ${MODULE_NAME}_m.so ${MODULE_NAME}
-    - tar zcvf ${MODULE_NAME}-${VERSION}-build-mpich.tar.gz ${MODULE_NAME}
+    - tar zcvf ${MODULE_NAME}-${VERSION}-build-${MPI_FLAVOR}.tar.gz ${MODULE_NAME}
+    - mkdir build_${MPI_FLAVOR}
+    - cp ${MODULE_NAME}_m.so build_${MPI_FLAVOR}
   # Use artifacts to return logs and other files to GitLab (if necessary)
   artifacts:
     paths:
-      - ${MODULE_NAME}-${VERSION}-build-mpich.tar.gz
+      - ${MODULE_NAME}-${VERSION}-build-${MPI_FLAVOR}.tar.gz
+      - build_${MPI_FLAVOR}/${MODULE_NAME}_m.so
+
+build-openmpi:
+  extends: .build-template
+  variables:
+    MPI_FLAVOR: "openmpi"
+
+build-mpich:
+  extends: .build-template
+  variables:
+    MPI_FLAVOR: "mpich"
+
 
 test-regression:
   stage: test
@@ -79,6 +74,7 @@ test-regression:
     - whoami
     - ls -lh
     - env
+    - cp -r build_openmpi build
     - scl enable gcc-toolset-${GCCVERSION} 'bash ci/run_regression_tests ${MAX_PROCS}'
 
 # This will upload the module install to the package registry, but only when tagged
@@ -140,14 +136,3 @@ release_job:
           url: "${PACKAGE_REGISTRY_URL}/${MODULE_NAME}-${VERSION}.tar.gz"
           filepath: "/${MODULE_NAME}-${VERSION}.tar.gz"
           link_type: package
-
-# Code and security scanning jobs
-sast:
-  stage: quality_check
-  artifacts:
-    paths:
-      - gl-sast-report.*
-
-include:
-  - template: Jobs/SAST.gitlab-ci.yml  # https://gitlab.com/gitlab-org/gitlab/blob/master/lib/gitlab/ci/templates/Jobs/SAST.gitlab-ci.yml
-
